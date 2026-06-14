@@ -244,86 +244,22 @@
     };
   }
 
-  async function callHermesAPI(videoInfo, settings) {
-    const { apiUrl, apiKey } = settings;
-    const url = `${apiUrl.replace(/\/+$/, '')}/v1/chat/completions`;
-
-    const systemPrompt = `你是一个专业的 YouTube 视频总结助手。
-
-## 你的任务
-用户会给你一个 YouTube 视频链接，你需要：
-1. 获取该视频的字幕/转录文本
-2. 分析内容并生成一份详细、结构化的总结报告
-
-## 如何获取字幕
-使用 python3 运行以下命令获取字幕：
-\`\`\`bash
-python3 /Users/alexmac/.hermes/skills/media/youtube-content/scripts/fetch_transcript.py "视频URL" --text-only --timestamps
-\`\`\`
-
-如果上述脚本不存在，则尝试：
-\`\`\`bash
-uv run python3 -c "from youtube_transcript_api import get_transcript; t=get_transcript('VIDEO_ID'); [print(f'{s['start']:.0f}s: {s['text']}') for s in t]"
-\`\`\`
-
-如果字幕无法获取（视频可能没有字幕），则用 web_search 或 web_extract 获取视频描述和评论作为替代。
-
-## 总结格式
-请使用中文（简体）输出，格式如下：
-
-### 📋 视频概览
-- 标题：[视频标题]
-- 时长/类型：[简要描述]
-
-### 🎯 核心要点
-- 按时间顺序列出主要内容，每条附上时间戳
-- 每个要点用 **粗体** 标注主题
-
-### 💡 关键观点/论据
-- 列出视频中最重要的观点或论据
-- 说明 speaker 的立场
-
-### 📝 详细内容
-- 按章节或主题分段，每段附时间戳
-- 包含具体的引用、数据或例子
-
-### 🔑 一句话总结
-- 用一句话概括整个视频的核心信息
-
-请确保总结全面、准确、有深度。`;
-
-    const userMessage = `请详细总结这个 YouTube 视频：
-
-标题：${videoInfo.title}
-${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
-链接：${videoInfo.url}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'hermes',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage }
-        ]
-      })
+  async function callHermesAPI(videoInfo) {
+    // Load settings from storage (background handles this)
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: 'summarize', videoInfo },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response?.success) {
+            resolve(response.summary);
+          } else {
+            reject(new Error(response?.error || '未知错误'));
+          }
+        }
+      );
     });
-
-    if (!response.ok) {
-      let errMsg = `HTTP ${response.status}`;
-      try {
-        const err = await response.json();
-        errMsg = err.error?.message || errMsg;
-      } catch {}
-      throw new Error(`Hermes API 请求失败: ${errMsg}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '(无返回内容)';
   }
 
   async function handleSummarize() {
@@ -362,7 +298,7 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
     };
 
     try {
-      const summary = await callHermesAPI(videoInfo, settings);
+      const summary = await callHermesAPI(videoInfo);
       loadingEl.style.display = 'none';
       contentEl.style.display = 'block';
       contentEl.textContent = summary;
