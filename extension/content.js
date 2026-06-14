@@ -250,8 +250,25 @@
     };
   }
 
-  async function callHermesAPI(videoInfo) {
-    // Read settings from storage
+  async function fetchTranscript(videoId) {
+    // First try the local transcript server
+    const urls = [
+      `http://127.0.0.1:8643/transcript?v=${videoId}`,
+      `http://localhost:8643/transcript?v=${videoId}`
+    ];
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(300000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.transcript) return data.transcript;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  async function summarizeTranscript(transcript, videoInfo) {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     const settings = result[STORAGE_KEY];
     if (!settings?.apiUrl || !settings?.apiKey) {
@@ -261,30 +278,25 @@
     const url = `${settings.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`;
     const model = settings.model || 'hermes';
 
-    const systemPrompt = `You are a YouTube video summarizer. Summarize videos in Chinese (Simplified).
+    const systemPrompt = 'You are a YouTube video summarizer. Provide detailed structured summaries in Chinese (Simplified).';
 
-How to get subtitles:
-\`\`\`bash
-python3 /Users/alexmac/.hermes/skills/media/youtube-content/scripts/fetch_transcript.py "URL" --text-only --timestamps
-\`\`\`
-Or use youtube_transcript_api if the script is not available.
-
-Output format:
-### 📋 Overview
-### 🎯 Key Points (with timestamps)
-### 💡 Main Arguments
-### 📝 Details
-### 🔑 One-line Summary`;
-
-    const userMessage = `Please summarize this YouTube video in Chinese:
+    const userMessage = `Please summarize this YouTube video transcript in Chinese.
 
 Title: ${videoInfo.title}
 ${videoInfo.channel ? `Channel: ${videoInfo.channel}` : ''}
-URL: ${videoInfo.url}`;
 
-    console.log('[Hermes] Fetching:', url);
+Transcript:
+${transcript}
 
-    // AbortController for timeout (5 minutes for long videos)
+Output format:
+### 📋 视频概览
+### 🎯 核心要点（附时间戳）
+### 💡 关键观点
+### 📝 详细内容
+### 🔑 一句话总结`;
+
+    console.log('[Hermes] Summarizing', transcript.length, 'chars...');
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 300000);
 
@@ -304,25 +316,21 @@ URL: ${videoInfo.url}`;
       signal: controller.signal
     }).finally(() => clearTimeout(timeoutId));
 
-    console.log('[Hermes] Status:', response.status, 'Content-Length:', response.headers.get('content-length'));
+    console.log('[Hermes] Status:', response.status);
 
     if (!response.ok) {
       let errMsg = `HTTP ${response.status}`;
       try { const err = await response.json(); errMsg = err.error?.message || errMsg; } catch {}
-      // Detect DeepSeek content filter
       if (errMsg.includes('Content Exists Risk')) {
-        errMsg += '\n\n💡 DeepSeek 内容审查拦截了此视频。请在扩展弹出中设置模型为：\nopenrouter/anthropic/claude-sonnet-4\n\n然后用 OpenRouter API 密钥。';
+        errMsg += '\n\n💡 DeepSeek 内容审查拦截了此视频。\n请在扩展弹出中设置模型为：openrouter/anthropic/claude-sonnet-4\n并用 OpenRouter API 密钥。';
       }
       throw new Error(`Hermes API 请求失败: ${errMsg}`);
     }
 
-    console.time('[Hermes] Parse response');
     const data = await response.json();
-    console.timeEnd('[Hermes] Parse response');
-
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error('Hermes 返回为空');
-    console.log('[Hermes] Summary length:', content.length, 'chars');
+    console.log('[Hermes] Summary:', content.length, 'chars');
     return content;
   }
 
@@ -333,10 +341,9 @@ URL: ${videoInfo.url}`;
       return;
     }
 
-    // 1. Show panel IMMEDIATELY — before any async operation
+    // 1. Show panel IMMEDIATELY
     let panel = document.getElementById('hermes-summary-panel');
     if (panel) panel.remove();
-
     panel = createPanel();
     document.body.appendChild(panel);
 
@@ -347,15 +354,25 @@ URL: ${videoInfo.url}`;
     const contentEl = document.getElementById('hermes-summary-content');
     const errorEl = document.getElementById('hermes-summary-error');
 
-    // Close handler
     document.getElementById('hermes-summary-close').onclick = () => {
       panel.remove();
       if (btn) btn.disabled = false;
     };
 
-    // 2. Now do async work
     try {
-      const summary = await callHermesAPI(videoInfo);
+      // 2. Fetch transcript first
+      const loadingHint = loadingEl.querySelector('.hermes-loading-hint');
+      if (loadingHint) loadingHint.textContent = '正在获取视频字幕...';
+      
+      const transcript = await fetchTranscript(videoInfo.id);
+      if (!transcript) {
+        throw new Error('无法获取字幕。可能视频没有字幕或字幕服务器未启动。');
+      }
+
+      // 3. Summarize
+      if (loadingHint) loadingHint.textContent = `字幕获取完成 (${Math.round(transcript.length/1000)}K chars)，正在分析...`;
+      
+      const summary = await summarizeTranscript(transcript, videoInfo);
       loadingEl.style.display = 'none';
       contentEl.style.display = 'block';
       contentEl.textContent = summary;

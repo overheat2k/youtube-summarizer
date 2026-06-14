@@ -76,12 +76,35 @@ fi
 if [ -f "$HOME/.hermes/skills/media/youtube-content/scripts/fetch_transcript.py" ]; then
   echo -e "${GREEN}✓ YouTube Content skill 已就绪${NC}"
 else
-  echo -e "${YELLOW}⚠ fetch_transcript.py 未找到，扩展将使用备用方法获取字幕${NC}"
+  echo -e "${YELLOW}⚠ fetch_transcript.py 未找到，将使用备用方案${NC}"
 fi
 
-# --- 4. Print instructions ---
+# Start transcript server (port 8643)
 echo ""
-echo -e "${YELLOW}[4/4] 安装指南${NC}"
+echo -e "${YELLOW}[4/4] 启动字幕服务器...${NC}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TRANSCRIPT_PID_FILE="/tmp/hermes_transcript_server.pid"
+
+# Kill existing if any
+if [ -f "$TRANSCRIPT_PID_FILE" ]; then
+  kill $(cat "$TRANSCRIPT_PID_FILE") 2>/dev/null || true
+  rm -f "$TRANSCRIPT_PID_FILE"
+fi
+
+nohup python3 "$SCRIPT_DIR/transcript_server.py" > /tmp/hermes_transcript_server.log 2>&1 &
+echo $! > "$TRANSCRIPT_PID_FILE"
+sleep 2
+
+if curl -sf http://127.0.0.1:8643/health >/dev/null 2>&1; then
+  echo -e "${GREEN}✓ 字幕服务器已启动 (端口 8643)${NC}"
+else
+  echo -e "${YELLOW}⚠ 字幕服务器启动中，稍后检查${NC}"
+fi
+
+# --- 5. Print instructions ---
+echo ""
+echo -e "${YELLOW}[5/5] 安装指南${NC}"
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
