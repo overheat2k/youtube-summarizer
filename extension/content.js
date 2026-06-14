@@ -304,6 +304,10 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
 
     console.log('[Hermes] Fetching:', url);
 
+    // AbortController for timeout (3 minutes)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -316,10 +320,11 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage }
         ]
-      })
-    });
+      }),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeoutId));
 
-    console.log('[Hermes] Status:', response.status);
+    console.log('[Hermes] Status:', response.status, 'Content-Length:', response.headers.get('content-length'));
 
     if (!response.ok) {
       let errMsg = `HTTP ${response.status}`;
@@ -327,9 +332,13 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
       throw new Error(`Hermes API 请求失败: ${errMsg}`);
     }
 
+    console.time('[Hermes] Parse response');
     const data = await response.json();
+    console.timeEnd('[Hermes] Parse response');
+
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error('Hermes 返回为空');
+    console.log('[Hermes] Summary length:', content.length, 'chars');
     return content;
   }
 
