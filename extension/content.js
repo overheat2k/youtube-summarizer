@@ -32,7 +32,7 @@
       <div id="hermes-summary-header">
         <span id="hermes-summary-title">✧ Hermes 总结</span>
         <div class="hermes-header-actions">
-          <button id="hermes-summary-reset-pos" title="重置位置">⟲</button>
+          <button id="hermes-summary-copy" title="复制总结内容">📋</button>
           <button id="hermes-summary-close">&times;</button>
         </div>
       </div>
@@ -110,16 +110,25 @@
     // Drag
     makeDraggable(panel);
 
-    // Reset position
-    const resetBtn = panel.querySelector('#hermes-summary-reset-pos');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        panel.style.left = 'auto';
-        panel.style.right = '24px';
-        panel.style.top = '80px';
-        panel.style.bottom = 'auto';
-        panel.style.width = '420px';
-        panel.style.height = 'auto';
+    // Copy summary
+    const copyBtn = panel.querySelector('#hermes-summary-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const content = panel.querySelector('#hermes-summary-content');
+        if (!content || content.style.display === 'none') return;
+        const text = content.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          createToast('已复制到剪贴板 ✅', 'success');
+        }).catch(() => {
+          // Fallback
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          createToast('已复制到剪贴板 ✅', 'success');
+        });
       });
     }
   }
