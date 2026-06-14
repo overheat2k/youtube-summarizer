@@ -37,6 +37,7 @@
         <div id="hermes-summary-loading">
           <div class="hermes-spinner"></div>
           <p>正在分析视频...</p>
+          <p class="hermes-loading-hint">长视频可能需要 2-3 分钟</p>
         </div>
         <div id="hermes-summary-content" style="display:none;"></div>
         <div id="hermes-summary-error" style="display:none;"></div>
@@ -151,6 +152,11 @@
     }
     @keyframes hermes-spin {
       to { transform: rotate(360deg); }
+    }
+    .hermes-loading-hint {
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
     }
 
     #hermes-summary-content {
@@ -304,9 +310,9 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
 
     console.log('[Hermes] Fetching:', url);
 
-    // AbortController for timeout (3 minutes)
+    // AbortController for timeout (5 minutes for long videos)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     const response = await fetch(url, {
       method: 'POST',
