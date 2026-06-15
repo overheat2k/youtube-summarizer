@@ -109,15 +109,16 @@ class SummarizerHandler(http.server.BaseHTTPRequestHandler):
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
 
-        # Fallback
-        from youtube_transcript_api import get_transcript
-        transcript = get_transcript(video_id)
+        # Fallback: use youtube_transcript_api
+        from youtube_transcript_api import YouTubeTranscriptApi
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id)
         lines = []
         for entry in transcript:
-            start = int(entry['start'])
+            start = int(entry.start)
             minutes = start // 60
             seconds = start % 60
-            lines.append(f"{minutes}:{seconds:02d} {entry['text']}")
+            lines.append(f"{minutes}:{seconds:02d} {entry.text}")
         return "\n".join(lines)
 
     # ── LLM call ───────────────────────────────────────────
