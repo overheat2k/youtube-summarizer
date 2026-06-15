@@ -84,7 +84,8 @@ testBtn.addEventListener('click', async () => {
   }
 
   try {
-    const apiUrl = `${s.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const baseUrl = (s.apiBaseUrl || DEFAULTS.apiBaseUrl).replace(/\/+$/, '');
+    const apiUrl = `${baseUrl}/chat/completions`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
