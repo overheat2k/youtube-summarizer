@@ -2,147 +2,119 @@
 set -euo pipefail
 
 # ============================================================
-# Hermes YouTube Summarizer — 一键安装脚本
+# YouTube Summarizer — 一键安装脚本
 # ============================================================
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Hermes YouTube Summarizer - Setup     ║${NC}"
+echo -e "${BLUE}║      YouTube Summarizer - Setup         ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
-# --- 1. Check prerequisites ---
-echo -e "${YELLOW}[1/4] 检查依赖...${NC}"
-
-if ! command -v hermes &>/dev/null; then
-  echo -e "${RED}✗ Hermes CLI 未安装。请先安装 Hermes Agent。${NC}"
-  echo "  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
-  exit 1
-fi
-echo -e "${GREEN}✓ Hermes CLI 已安装${NC}"
+# ── 1. Check system dependencies ────────────────────────
+echo -e "${YELLOW}[1/3] 检查系统环境...${NC}"
 
 if ! command -v python3 &>/dev/null; then
   echo -e "${RED}✗ Python3 未安装${NC}"
+  echo "  请先安装 Python 3.10+ : https://www.python.org/downloads/"
   exit 1
 fi
-echo -e "${GREEN}✓ Python3 已安装${NC}"
 
-# Check youtube-transcript-api and certifi
-if ! python3 -c "import youtube_transcript_api" 2>/dev/null; then
-  echo -e "${YELLOW}  安装依赖...${NC}"
-  python3 -m pip install youtube-transcript-api certifi -q
+# Check Python version (3.10+)
+PY_VER=$(python3 --version 2>&1 | grep -oP '\d+\.\d+')
+PY_MAJOR=$(echo "$PY_VER" | cut -d. -f1)
+PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
+if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]); then
+  echo -e "${RED}✗ 需要 Python 3.10+，当前是 $PY_MAJOR.$PY_MINOR${NC}"
+  exit 1
 fi
-echo -e "${GREEN}✓ Python 依赖已就绪${NC}"
+echo -e "${GREEN}✓ Python $PY_MAJOR.$PY_MINOR${NC}"
 
-# --- 2. Enable Hermes API Server ---
-echo ""
-echo -e "${YELLOW}[2/4] 配置 Hermes API Server...${NC}"
-
-# Generate a random API key
-API_KEY="hermes-yt-$(openssl rand -hex 4 2>/dev/null || echo 'summarizer')"
-
-hermes config set API_SERVER_ENABLED true
-hermes config set API_SERVER_KEY "$API_KEY"
-
-# Restart gateway
-echo -e "${BLUE}  ↻ 重启 Hermes Gateway...${NC}"
-hermes gateway stop 2>/dev/null || true
-sleep 1
-hermes gateway start 2>/dev/null || hermes gateway run &
-sleep 2
-
-# Verify
-if curl -sf http://127.0.0.1:8642/health >/dev/null 2>&1; then
-  echo -e "${GREEN}✓ Hermes API Server 已启动 (端口 8642)${NC}"
+# OS check
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo -e "${YELLOW}⚠ 非 macOS 系统，launchd 开机自启不适用，将直接启动服务器${NC}"
+  IS_MACOS=false
 else
-  echo -e "${YELLOW}⚠ 等待 Hermes API Server 启动...${NC}"
-  echo -e "${YELLOW}  稍后运行 'hermes gateway' 或检查 'hermes gateway status'${NC}"
+  IS_MACOS=true
+  echo -e "${GREEN}✓ macOS${NC}"
 fi
 
-# --- 3. Install YouTube Content skill ---
+# ── 2. Install Python packages ──────────────────────────
 echo ""
-echo -e "${YELLOW}[3/4] 安装 YouTube 总结技能...${NC}"
+echo -e "${YELLOW}[2/3] 安装 Python 依赖...${NC}"
 
-if [ ! -d "$HOME/.hermes/skills/media/youtube-content" ]; then
-  echo -e "${BLUE}  → 从技能中心安装 youtube-content...${NC}"
-  hermes skills install youtube-content 2>/dev/null || echo -e "${YELLOW}  ⚠ 安装失败，扩展将使用备用方案${NC}"
-fi
+python3 -m pip install --quiet --upgrade youtube-transcript-api certifi 2>&1 | tail -1 || {
+  echo -e "${RED}✗ pip 安装失败，尝试: python3 -m pip install youtube-transcript-api certifi${NC}"
+  exit 1
+}
+echo -e "${GREEN}✓ youtube-transcript-api (字幕获取)${NC}"
+echo -e "${GREEN}✓ certifi (SSL 证书)${NC}"
 
-if [ -f "$HOME/.hermes/skills/media/youtube-content/scripts/fetch_transcript.py" ]; then
-  echo -e "${GREEN}✓ YouTube Content skill 已就绪${NC}"
-else
-  echo -e "${YELLOW}⚠ fetch_transcript.py 未找到，将使用备用方案${NC}"
-fi
-
-# Start transcript server (port 8643) with launchd persistence
+# ── 3. Start transcript server ─────────────────────────
 echo ""
-echo -e "${YELLOW}[4/4] 启动字幕服务器...${NC}"
+echo -e "${YELLOW}[3/3] 启动字幕服务器 (端口 8643)...${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_SRC="$SCRIPT_DIR/com.hermes.youtube-transcript-server.plist"
-PLIST_DST="$HOME/Library/LaunchAgents/com.hermes.youtube-transcript-server.plist"
+SERVER_SCRIPT="$SCRIPT_DIR/transcript_server.py"
 
-# Kill old process
-launchctl unload "$PLIST_DST" 2>/dev/null || true
-pkill -f transcript_server.py 2>/dev/null || true
+# Kill any existing process on port 8643
+lsof -ti :8643 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 1
 
-# Install plist with real paths
-sed "s|__SCRIPT_DIR__|$SCRIPT_DIR|g; s|__HOME__|$HOME|g" "$PLIST_SRC" > "$PLIST_DST"
+if [ "$IS_MACOS" = true ]; then
+  PLIST_SRC="$SCRIPT_DIR/com.hermes.youtube-transcript-server.plist"
+  PLIST_DST="$HOME/Library/LaunchAgents/com.hermes.youtube-transcript-server.plist"
 
-# Load launchd job
-launchctl load "$PLIST_DST"
+  launchctl unload "$PLIST_DST" 2>/dev/null || true
+
+  # Install plist with real paths
+  sed "s|__SCRIPT_DIR__|$SCRIPT_DIR|g; s|__HOME__|$HOME|g" "$PLIST_SRC" > "$PLIST_DST"
+
+  launchctl load "$PLIST_DST" 2>&1 || {
+    echo -e "${YELLOW}  launchd 加载失败，直接启动...${NC}"
+    nohup python3 "$SERVER_SCRIPT" > /tmp/hermes_transcript_server.log 2>&1 &
+    echo -e "${YELLOW}  服务器 PID $!${NC}"
+  }
+else
+  nohup python3 "$SERVER_SCRIPT" > /tmp/hermes_transcript_server.log 2>&1 &
+  echo -e "${YELLOW}  PID $!${NC}"
+fi
+
 sleep 2
 
 if curl -sf http://127.0.0.1:8643/health >/dev/null 2>&1; then
-  echo -e "${GREEN}✓ 字幕服务器已启动 (端口 8643) — 开机自启${NC}"
+  echo -e "${GREEN}✓ 字幕服务器已启动 (端口 8643)${NC}"
+  if [ "$IS_MACOS" = true ]; then
+    echo -e "${GREEN}  → 已配置为开机自启${NC}"
+  fi
 else
-  # Fallback: direct start
-  nohup python3 "$SCRIPT_DIR/transcript_server.py" > /tmp/hermes_transcript_server.log 2>&1 &
-  echo -e "${YELLOW}⚠ 直接启动字幕服务器 (PID $!)${NC}"
+  echo -e "${YELLOW}⚠ 手动启动: python3 \"$SERVER_SCRIPT\"${NC}"
 fi
 
-# --- 5. Print instructions ---
+# ── Print instructions ──────────────────────────────────
 echo ""
-echo -e "${YELLOW}[5/5] 安装指南${NC}"
-echo ""
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXTENSION_DIR="$SCRIPT_DIR/extension"
-
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  ✅ 配置完成！${NC}"
+echo -e "${GREEN}  ✅ 安装完成！${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  API 地址: ${BLUE}http://127.0.0.1:8642${NC}"
-echo -e "  API 密钥: ${YELLOW}$API_KEY${NC}"
+echo -e "${BLUE}  📌 加载 Chrome 扩展：${NC}"
+echo "  1. chrome://extensions"
+echo "  2. 开启「开发者模式」"
+echo "  3. 「加载已解压的扩展程序」→ $SCRIPT_DIR/extension"
 echo ""
-echo -e "${BLUE}  📌 安装 Chrome 扩展：${NC}"
-echo "  1. 打开 Chrome，访问: chrome://extensions"
-echo "  2. 开启右上角「开发者模式」"
-echo "  3. 点击「加载已解压的扩展程序」"
-echo "  4. 选择目录: $EXTENSION_DIR"
+echo -e "${BLUE}  ⚙️  配置扩展：${NC}"
+echo "  打开扩展弹窗，填入："
+echo "  - Base URL: https://api.deepseek.com/v1"
+echo "  - API Key: 你的 DeepSeek / OpenRouter 密钥"
+echo "  - 模型: deepseek-v4-flash"
 echo ""
-echo -e "${BLUE}  ⚙️  设置扩展（打开扩展弹窗即可配置）：${NC}"
-echo "  - API 地址: http://127.0.0.1:8642"
-echo "  - API 密钥: $API_KEY"
+echo -e "${BLUE}  🎬 使用：${NC}"
+echo "  打开任意 YouTube 视频 → 点击「总结」按钮"
 echo ""
-echo -e "${BLUE}  🎬 使用方法：${NC}"
-echo "  1. 打开任意 YouTube 视频"
-echo "  2. 点击视频下方的紫色「总结」按钮"
-echo "  3. 等待几秒，右侧弹出详细总结面板"
-echo ""
-
-# Save API key to .api_key (gitignored)
-echo "$API_KEY" > "$SCRIPT_DIR/.api_key"
-echo -e "${GREEN}  API 密钥已保存到 $SCRIPT_DIR/.api_key${NC}"
-echo ""
-echo -e "${BLUE}  💡 在多台 Mac 上使用：${NC}"
-echo "  每台机器运行一次此脚本即可。"
-echo "  扩展代码通过 Git 同步，配置各自独立。"
+echo -e "  详细文档: ${BLUE}$SCRIPT_DIR/README.md${NC}"
 echo ""
