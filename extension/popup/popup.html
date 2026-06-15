@@ -193,20 +193,30 @@
 
   <div class="body">
     <div class="section">
-      <div class="section-title">Hermes API 配置</div>
+      <div class="section-title">视频总结服务器</div>
       <div style="margin-bottom:8px;">
-        <label for="apiUrl">API 地址</label>
-        <input type="text" id="apiUrl" placeholder="http://127.0.0.1:8642" />
+        <label for="serverUrl">服务器地址</label>
+        <input type="text" id="serverUrl" placeholder="http://127.0.0.1:8643" />
+        <div style="font-size:11px;color:#999;margin-top:2px;">
+          运行在本地端口的总结服务器（自带字幕获取 + AI 总结）
+        </div>
       </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AI 模型配置</div>
       <div style="margin-bottom:8px;">
         <label for="apiKey">API 密钥</label>
-        <input type="password" id="apiKey" placeholder="your-secret-key" />
+        <input type="password" id="apiKey" placeholder="OpenRouter 或 OpenAI API Key" />
+        <div style="font-size:11px;color:#999;margin-top:2px;">
+          OpenRouter: 在 openrouter.ai/keys 获取
+        </div>
       </div>
       <div style="margin-bottom:8px;">
-        <label for="modelName">模型（可选）</label>
-        <input type="text" id="modelName" placeholder="hermes（默认）" />
+        <label for="modelName">模型</label>
+        <input type="text" id="modelName" placeholder="openrouter/openai/gpt-4o-mini" />
         <div style="font-size:11px;color:#999;margin-top:2px;">
-          留空用 Hermes 默认模型。如遇内容审查可换 <strong>openrouter/anthropic/claude-sonnet-4</strong>
+          openrouter/&lt;模型名&gt; 或 openai/&lt;模型名&gt;
         </div>
       </div>
       <div class="btn-group">

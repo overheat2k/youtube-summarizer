@@ -1,12 +1,11 @@
 // ============================================================
 // Hermes YouTube Summarizer — Popup Script
-// Settings management and connection testing
+// Settings: server URL, API key, model
 // ============================================================
 
 const STORAGE_KEY = 'hermes_youtube_settings';
 
-// --- DOM refs ---
-const apiUrlInput = document.getElementById('apiUrl');
+const apiUrlInput = document.getElementById('serverUrl');
 const apiKeyInput = document.getElementById('apiKey');
 const modelNameInput = document.getElementById('modelName');
 const saveBtn = document.getElementById('saveBtn');
@@ -16,22 +15,17 @@ const statusMsg = document.getElementById('statusMsg');
 // --- Load saved settings ---
 (async function loadSettings() {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const settings = result[STORAGE_KEY] || {
-    apiUrl: 'http://127.0.0.1:8642',
-    apiKey: 'hermes-youtube-summarizer',
-    model: ''
-  };
-  apiUrlInput.value = settings.apiUrl;
-  apiKeyInput.value = settings.apiKey;
-  modelNameInput.value = settings.model || '';
+  const s = result[STORAGE_KEY] || {};
+  apiUrlInput.value = s.serverUrl || 'http://127.0.0.1:8643';
+  apiKeyInput.value = s.apiKey || '';
+  modelNameInput.value = s.model || 'openrouter/openai/gpt-4o-mini';
 })();
 
-// --- Save ---
 function getSettings() {
   return {
-    apiUrl: apiUrlInput.value.trim() || 'http://127.0.0.1:8642',
+    serverUrl: apiUrlInput.value.trim() || 'http://127.0.0.1:8643',
     apiKey: apiKeyInput.value.trim() || '',
-    model: modelNameInput.value.trim() || ''
+    model: modelNameInput.value.trim() || 'openrouter/openai/gpt-4o-mini'
   };
 }
 
@@ -41,51 +35,47 @@ function setStatus(msg, type) {
   statusMsg.style.display = 'block';
 }
 
+// --- Save ---
 saveBtn.addEventListener('click', async () => {
-  const settings = getSettings();
-  if (!settings.apiKey) {
+  const s = getSettings();
+  if (!s.apiKey) {
     setStatus('请输入 API 密钥', 'error');
     return;
   }
-  await chrome.storage.local.set({ [STORAGE_KEY]: settings });
+  await chrome.storage.local.set({ [STORAGE_KEY]: s });
   setStatus('配置已保存 ✅', 'success');
 });
 
 // --- Test Connection ---
 testBtn.addEventListener('click', async () => {
-  const settings = getSettings();
+  const s = getSettings();
   testBtn.disabled = true;
   testBtn.innerHTML = '<span class="spinner"></span> 测试中...';
-  setStatus('正在连接 Hermes API Server...', 'info');
+  setStatus('正在连接总结服务器...', 'info');
 
   try {
-    const result = await chrome.runtime.sendMessage({
-      action: 'testConnection',
-      settings
-    });
-
-    if (result?.success) {
-      setStatus('✅ 连接成功！Hermes API Server 正在运行', 'success');
+    const resp = await fetch(`${s.serverUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    if (resp.ok) {
+      const data = await resp.json();
+      setStatus(`✅ ${data.version || 'v1'} 服务器运行正常`, 'success');
     } else {
-      setStatus(`❌ ${result?.error || '连接失败'}`, 'error');
+      setStatus(`❌ HTTP ${resp.status}`, 'error');
     }
   } catch (err) {
-    setStatus(`❌ 发送消息失败: ${err.message}`, 'error');
+    setStatus(`❌ 无法连接 ${s.serverUrl}: ${err.message}`, 'error');
   } finally {
     testBtn.disabled = false;
     testBtn.textContent = '测试连接';
   }
 });
 
-// --- Auto-save on input change ---
+// --- Auto-save ---
 let saveTimer;
 function autoSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    const settings = getSettings();
-    if (settings.apiKey) {
-      await chrome.storage.local.set({ [STORAGE_KEY]: settings });
-    }
+    const s = getSettings();
+    if (s.apiKey) await chrome.storage.local.set({ [STORAGE_KEY]: s });
   }, 800);
 }
 

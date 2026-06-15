@@ -474,82 +474,44 @@
     return html;
   }
 
-  async function fetchTranscript(videoId) {
-    // Try the local transcript server
-    const urls = [
-      `http://127.0.0.1:8643/transcript?v=${videoId}`,
-      `http://localhost:8643/transcript?v=${videoId}`
-    ];
-    for (const url of urls) {
-      try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(60000) });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.transcript) return data.transcript;
+  async function summarizeVideo(videoInfo) {
+    const result = await chrome.storage.local.get(STORAGE_KEY);
+    const settings = result[STORAGE_KEY];
+    if (!settings?.apiKey) throw new Error('请先在扩展弹窗中配置 API 密钥');
+
+    const model = settings.model || 'openrouter/openai/gpt-4o-mini';
+    const serverUrl = settings.serverUrl || 'http://127.0.0.1:8643';
+
+    // Strategy 1: Use the standalone /summarize endpoint (no Hermes needed)
+    try {
+      const resp = await fetch(`${serverUrl}/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: videoInfo.id,
+          apiKey: settings.apiKey,
+          model: model,
+        }),
+        signal: AbortSignal.timeout(300000)
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.summary) {
+          console.log('[Hermes] Standalone mode, model:', data.model);
+          return data.summary;
         }
-      } catch {}
+      }
+      // If server returns error, fall through
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    } catch (err) {
+      // Strategy 2: Fallback — transcript + Hermes API
+      console.log('[Hermes] Standalone failed, trying Hermes mode:', err.message);
+      return await summarizeWithHermes(videoInfo, settings);
     }
-    return null;
   }
 
-  async function summarizeViaHermesFallback(videoInfo) {
-    // Fallback: let Hermes AIAgent figure out the transcript
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    const settings = result[STORAGE_KEY];
-    if (!settings?.apiUrl || !settings?.apiKey) throw new Error('未配置 API');
-
-    const url = `${settings.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`;
-    const model = settings.model || 'hermes';
-
-    const systemPrompt = `You are a YouTube video summarizer. 
-1. Use available tools to get the video transcript/subtitles
-2. Summarize in Chinese (Simplified) with:
-   - ### 📋 视频概览
-   - ### 🎯 核心要点 (with timestamps)
-   - ### 💡 关键观点
-   - ### 📝 详细内容
-   - ### 🔑 一句话总结`;
-
-    const userMessage = `Please summarize this YouTube video in Chinese:
-
-Title: ${videoInfo.title}
-${videoInfo.channel ? `Channel: ${videoInfo.channel}` : ''}
-URL: ${videoInfo.url}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
-
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${settings.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ model, messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ]}),
-      signal: controller.signal
-    }).finally(() => clearTimeout(timeoutId));
-
-    if (!resp.ok) {
-      let m = `HTTP ${resp.status}`;
-      try { const e = await resp.json(); m = e.error?.message || m; } catch {}
-      throw new Error(`Hermes API 请求失败: ${m}`);
-    }
-    const data = await resp.json();
-    const c = data.choices?.[0]?.message?.content;
-    if (!c) throw new Error('Hermes 返回为空');
-    return c;
-  }
-
-  async function summarizeTranscript(transcript, videoInfo) {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    const settings = result[STORAGE_KEY];
-    if (!settings?.apiUrl || !settings?.apiKey) {
-      throw new Error('请先在扩展弹窗中配置 Hermes API 地址和密钥');
-    }
-
+  async function summarizeWithHermes(videoInfo, settings) {
     const url = `${settings.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`;
     const model = settings.model || 'hermes';
 
@@ -636,22 +598,11 @@ Output format:
     };
 
     try {
-      // 2. Fetch transcript first
+      // 2. Summarize using standalone /summarize (fallback to Hermes)
       const loadingHint = loadingEl.querySelector('.hermes-loading-hint');
-      if (loadingHint) loadingHint.textContent = '正在获取视频字幕...';
+      if (loadingHint) loadingHint.textContent = '正在分析视频...';
       
-      const transcript = await fetchTranscript(videoInfo.id);
-      
-      let summary;
-      if (transcript) {
-        // Success: use fast path with local transcript
-        if (loadingHint) loadingHint.textContent = `字幕获取完成 (${Math.round(transcript.length/1000)}K chars)，正在分析...`;
-        summary = await summarizeTranscript(transcript, videoInfo);
-      } else {
-        // Fallback: let Hermes AIAgent fetch & summarize
-        if (loadingHint) loadingHint.textContent = '字幕服务器不可用，改用 Hermes AI 模式...';
-        summary = await summarizeViaHermesFallback(videoInfo);
-      }
+      const summary = await summarizeVideo(videoInfo);
       loadingEl.style.display = 'none';
       contentEl.style.display = 'block';
       contentEl.innerHTML = renderMarkdown(summary);
