@@ -1,6 +1,6 @@
-# Hermes YouTube Summarizer 🎬📝
+# YouTube Summarizer 🎬📝
 
-一键通过 **Hermes Agent** 总结 YouTube 视频的 Chrome 扩展。
+一键通过 AI 总结 YouTube 视频的 Chrome 扩展。
 
 ## 架构
 

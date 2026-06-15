@@ -30,7 +30,7 @@
     panel.id = 'hermes-summary-panel';
     panel.innerHTML = `
       <div id="hermes-summary-header">
-        <span id="hermes-summary-title">✧ Hermes 总结</span>
+        <span id="hermes-summary-title">YouTube 总结</span>
         <div class="hermes-header-actions">
           <button id="hermes-summary-copy" title="复制总结内容">📋</button>
           <button id="hermes-summary-close">&times;</button>
@@ -504,7 +504,7 @@
       throw new Error(err.error || `HTTP ${resp.status}`);
     } catch (err) {
       // Strategy 2: Fallback — Hermes API
-      console.log('[Hermes] Standalone failed, trying Hermes:', err.message);
+      console.log('[Summarizer] Standalone failed, trying Hermes:', err.message);
       return await summarizeWithHermes(videoInfo, settings);
     }
   }
@@ -530,7 +530,7 @@ Output format:
 ### 📝 详细内容
 ### 🔑 一句话总结`;
 
-    console.log('[Hermes] Summarizing', transcript.length, 'chars...');
+    console.log('[Summarizer] Summarizing', transcript.length, 'chars...');
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 300000);
@@ -551,7 +551,7 @@ Output format:
       signal: controller.signal
     }).finally(() => clearTimeout(timeoutId));
 
-    console.log('[Hermes] Status:', response.status);
+    console.log('[Summarizer] Status:', response.status);
 
     if (!response.ok) {
       let errMsg = `HTTP ${response.status}`;
@@ -565,7 +565,7 @@ Output format:
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error('Hermes 返回为空');
-    console.log('[Hermes] Summary:', content.length, 'chars');
+    console.log('[Summarizer] Summary:', content.length, 'chars');
     return content;
   }
 
@@ -609,7 +609,7 @@ Output format:
       loadingEl.style.display = 'none';
       errorEl.style.display = 'block';
       errorEl.textContent = err.message;
-      console.error('[Hermes Summarizer]', err.message);
+      console.error('[YouTube Summarizer]', err.message);
     } finally {
       if (btn) btn.disabled = false;
     }

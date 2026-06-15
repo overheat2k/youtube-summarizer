@@ -117,7 +117,7 @@ python3 -c "from youtube_transcript_api import get_transcript; t=get_transcript(
 ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
 链接：${videoInfo.url}`;
 
-  console.log('[Hermes] Fetching:', url, 'Key:', settings.apiKey);
+  console.log('[Summarizer] Fetching:', url, 'Key:', settings.apiKey);
 
   try {
     const response = await fetch(url, {
@@ -135,7 +135,7 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
       })
     });
 
-    console.log('[Hermes] Response status:', response.status);
+    console.log('[Summarizer] Response status:', response.status);
 
     if (!response.ok) {
       let errMsg = `HTTP ${response.status}`;
@@ -152,7 +152,7 @@ ${videoInfo.channel ? `频道：${videoInfo.channel}` : ''}
     return content;
 
   } catch (err) {
-    console.error('[Hermes] Fetch error:', err.message);
+    console.error('[Summarizer] Fetch error:', err.message);
     throw err;
   }
 }
