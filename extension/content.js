@@ -479,7 +479,7 @@
     const settings = result[STORAGE_KEY];
     if (!settings?.apiKey) throw new Error('请先在扩展弹窗中配置 API 密钥');
 
-    const serverUrl = settings.serverUrl || 'http://127.0.0.1:8643';
+    const serverUrl = 'http://127.0.0.1:8643';
     const apiBaseUrl = settings.apiBaseUrl || 'https://openrouter.ai/api/v1';
     const model = settings.model || 'openai/gpt-4o-mini';
 

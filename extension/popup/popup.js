@@ -1,11 +1,10 @@
 // ============================================================
 // Hermes YouTube Summarizer — Popup Script
-// Settings: server URL, API base URL, API key, model
+// Settings: API base URL, API key, model
 // ============================================================
 
 const STORAGE_KEY = 'hermes_youtube_settings';
 
-const serverUrlInput = document.getElementById('serverUrl');
 const apiBaseUrlInput = document.getElementById('apiBaseUrl');
 const apiKeyInput = document.getElementById('apiKey');
 const modelNameInput = document.getElementById('modelName');
@@ -14,7 +13,6 @@ const testBtn = document.getElementById('testBtn');
 const statusMsg = document.getElementById('statusMsg');
 
 const DEFAULTS = {
-  serverUrl: 'http://127.0.0.1:8643',
   apiBaseUrl: 'https://openrouter.ai/api/v1',
   apiKey: '',
   model: 'openai/gpt-4o-mini'
@@ -24,7 +22,6 @@ const DEFAULTS = {
 (async function load() {
   const r = await chrome.storage.local.get(STORAGE_KEY);
   const s = r[STORAGE_KEY] || {};
-  serverUrlInput.value = s.serverUrl || DEFAULTS.serverUrl;
   apiBaseUrlInput.value = s.apiBaseUrl || DEFAULTS.apiBaseUrl;
   apiKeyInput.value = s.apiKey || '';
   modelNameInput.value = s.model || DEFAULTS.model;
@@ -32,7 +29,6 @@ const DEFAULTS = {
 
 function getSettings() {
   return {
-    serverUrl: serverUrlInput.value.trim() || DEFAULTS.serverUrl,
     apiBaseUrl: apiBaseUrlInput.value.trim() || DEFAULTS.apiBaseUrl,
     apiKey: apiKeyInput.value.trim() || '',
     model: modelNameInput.value.trim() || DEFAULTS.model
@@ -56,7 +52,7 @@ saveBtn.addEventListener('click', async () => {
   setStatus('配置已保存 ✅', 'success');
 });
 
-// --- Test Connection ---
+// --- Test ---
 testBtn.addEventListener('click', async () => {
   const s = getSettings();
   testBtn.disabled = true;
@@ -64,15 +60,15 @@ testBtn.addEventListener('click', async () => {
   setStatus('正在连接总结服务器...', 'info');
 
   try {
-    const resp = await fetch(`${s.serverUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    const resp = await fetch('http://127.0.0.1:8643/health', { signal: AbortSignal.timeout(5000) });
     if (resp.ok) {
       const data = await resp.json();
-      setStatus(`✅ ${data.version || 'v1'} 服务器运行正常`, 'success');
+      setStatus(`✅ 服务器 ${data.version || 'v1'} 运行正常`, 'success');
     } else {
       setStatus(`❌ HTTP ${resp.status}`, 'error');
     }
   } catch (err) {
-    setStatus(`❌ 无法连接 ${s.serverUrl}: ${err.message}`, 'error');
+    setStatus(`❌ 无法连接: ${err.message}`, 'error');
   } finally {
     testBtn.disabled = false;
     testBtn.textContent = '测试连接';
@@ -89,7 +85,6 @@ function autoSave() {
   }, 800);
 }
 
-serverUrlInput.addEventListener('input', autoSave);
 apiBaseUrlInput.addEventListener('input', autoSave);
 apiKeyInput.addEventListener('input', autoSave);
 modelNameInput.addEventListener('input', autoSave);
