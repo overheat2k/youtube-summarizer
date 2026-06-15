@@ -475,37 +475,53 @@
   }
 
   async function summarizeVideo(videoInfo) {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    const settings = result[STORAGE_KEY];
+    const settings = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
     if (!settings?.apiKey) throw new Error('请先在扩展弹窗中配置 API 密钥');
 
     const serverUrl = 'http://127.0.0.1:8643';
     const apiBaseUrl = settings.apiBaseUrl || 'https://api.deepseek.com/v1';
     const model = settings.model || 'deepseek-v4-flash';
 
-    // Strategy 1: Use the standalone /summarize endpoint
+    // Step 1: Fetch transcript
     try {
-      const resp = await fetch(`${serverUrl}/summarize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: videoInfo.id,
-          apiKey: settings.apiKey,
-          baseUrl: apiBaseUrl,
-          model: model,
-        }),
-        signal: AbortSignal.timeout(300000)
+      const resp = await fetch(`${serverUrl}/transcript?v=${videoInfo.id}`, {
+        signal: AbortSignal.timeout(120000)
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.summary) return data.summary;
-      }
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${resp.status}`);
+      if (!resp.ok) throw new Error(`获取字幕失败 (HTTP ${resp.status})`);
+      const data = await resp.json();
+      if (!data.transcript) throw new Error('字幕为空');
+
+      // Show transcript size in the loading hint (handled by caller)
+      return { transcript: data.transcript, length: data.length, serverUrl, apiBaseUrl, model };
     } catch (err) {
-      // Standalone mode failed — show error directly
-      throw err;
+      throw new Error(`获取字幕失败: ${err.message}`);
     }
+  }
+
+  async function callAI(transcript, videoInfo, settings) {
+    const serverUrl = 'http://127.0.0.1:8643';
+    const apiBaseUrl = settings.apiBaseUrl || 'https://api.deepseek.com/v1';
+    const model = settings.model || 'deepseek-v4-flash';
+
+    const resp = await fetch(`${serverUrl}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videoId: videoInfo.id,
+        apiKey: settings.apiKey,
+        baseUrl: apiBaseUrl,
+        model: model,
+        transcript: transcript   // skip server-side fetching
+      }),
+      signal: AbortSignal.timeout(300000)
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.summary) return data.summary;
+    }
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${resp.status}`);
   }
 
   async function handleSummarize() {
@@ -535,11 +551,21 @@
     };
 
     try {
-      // 2. Summarize using standalone /summarize (fallback to Hermes)
+      // 2. Step 1: Fetch transcript
       const loadingHint = loadingEl.querySelector('.hermes-loading-hint');
-      if (loadingHint) loadingHint.textContent = '正在分析视频...';
+      if (loadingHint) loadingHint.textContent = '正在获取视频字幕...';
       
-      const summary = await summarizeVideo(videoInfo);
+      const result = await summarizeVideo(videoInfo);
+      
+      // Show transcript size
+      if (loadingHint) {
+        const sizeKb = Math.round(result.length / 1000);
+        loadingHint.textContent = `字幕获取完成 (${sizeKb}K chars)，正在分析...`;
+      }
+      
+      // 3. Step 2: Call AI with transcript
+      const settings = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      const summary = await callAI(result.transcript, videoInfo, settings);
       loadingEl.style.display = 'none';
       contentEl.style.display = 'block';
       contentEl.innerHTML = renderMarkdown(summary);

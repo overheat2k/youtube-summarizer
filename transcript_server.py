@@ -66,8 +66,9 @@ class SummarizerHandler(http.server.BaseHTTPRequestHandler):
             body = self._read_body()
             video_id = body.get('videoId')
             api_key = body.get('apiKey')
-            base_url = body.get('baseUrl', 'https://openrouter.ai/api/v1')
-            model = body.get('model', 'openai/gpt-4o-mini')
+            base_url = body.get('baseUrl', 'https://api.deepseek.com/v1')
+            model = body.get('model', 'deepseek-v4-flash')
+            existing_transcript = body.get('transcript')  # optional, pre-fetched
 
             if not video_id:
                 return self._json({"error": "Missing videoId"}, 400)
@@ -75,7 +76,12 @@ class SummarizerHandler(http.server.BaseHTTPRequestHandler):
                 return self._json({"error": "Missing apiKey"}, 400)
 
             try:
-                transcript = self._fetch_transcript(video_id)
+                # Only fetch transcript if not provided
+                if existing_transcript:
+                    transcript = existing_transcript
+                else:
+                    transcript = self._fetch_transcript(video_id)
+
                 summary = self._call_llm(transcript, api_key, base_url, model)
                 self._json({
                     "video_id": video_id,
