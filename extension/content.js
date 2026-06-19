@@ -487,8 +487,12 @@
       const resp = await fetch(`${serverUrl}/transcript?v=${videoInfo.id}`, {
         signal: AbortSignal.timeout(120000)
       });
-      if (!resp.ok) throw new Error(`获取字幕失败 (HTTP ${resp.status})`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `获取字幕失败 (HTTP ${resp.status})`);
+      }
       const data = await resp.json();
+      if (data.error) throw new Error(data.error);
       if (!data.transcript) throw new Error('字幕为空');
 
       // Show transcript size in the loading hint (handled by caller)
